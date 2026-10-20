@@ -26,6 +26,10 @@ jobs:
         run: |
           test -s reportkeeper_android/app/build/outputs/apk/debug/app-debug.apk
           sha256sum reportkeeper_android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Verify APK signature and manifest
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose reportkeeper_android/app/build/outputs/apk/debug/app-debug.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging reportkeeper_android/app/build/outputs/apk/debug/app-debug.apk | grep -E '^(package:|sdkVersion:|targetSdkVersion:|launchable-activity:)'
       - uses: actions/upload-artifact@v4
         with:
           name: ReportKeeper-v0.1-test-APK
