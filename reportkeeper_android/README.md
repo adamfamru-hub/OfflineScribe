@@ -1,8 +1,8 @@
-# Duplicutter Android v0.3.0 beta
-Created by PERSPICAL • Developed by Adam F. Amru.
-Branding: selected glossy blue-cyan diagonal-cut icon, integrated as a WebP drawable and launch icon.
-Native offline Android file manager for Samsung / Android 8.0+.
-Features: SHA-256 byte-for-byte duplicate detection for photos, videos, documents, audio, archives, and other files; old report revision suggestions preserving three recognized revisions; multi-folder SAF selection, copy/verify/delete move to multiple destinations and category subfolders, restore history, and manual review.
-Interface: dark navy/cyan app branding, first-launch onboarding, source/destination cards, scan category selection, storage summary, searchable paginated 80-row results, and fixed action bar.
-Build debug APK in GitHub Actions on isolated branch. Application ID id.amru.duplicutter, side-by-side install with older ReportKeeper beta.
-Safety: source folders require user selection, no internet permission; no file deletion without explicit user confirmation; move verifies SHA-256 and records restore journal before original removal. Same-storage moves do not free space. Test on copies before using originals.
+# Duplicutter Safety Beta v0.4
+Created by PERSPICAL. Developed by Adam F. Amru.
+Safety update: one protected keeper per exact SHA-256 duplicate group, explicit Select All EXTRA copies, no deletion of originals, nonduplicates, or revision-only candidates. The app verifies the selected file hash AND protected keeper hash before each deletion, refuses deletions if changed/missing. Safe Auto Cleanup is a preview followed by confirmation; there is no unattended deletion. 
+Usability update: compact fixed footer, pager near search, Android 15+ system bar insets, blue-themed About/dialogs, long press for file details. Selected file size/paths available in details.
+Full shared-storage scan: Android 11+ opt-in special "All files access" via Settings, then read files from primary shared storage, including Downloads; Android/data, Android/obb and OS-protected locations remain restricted. On older Android versions, use scoped folder picking instead. Scanning time depends on storage/file count; no guaranteed seconds.
+Offline: no INTERNET permission. All files access is only for a sideload test build, not an assertion of Play Store policy eligibility.
+Unique application ID id.amru.duplicutter.safe to install beside v0.3 given non-persistent GitHub debug signing.
+Do not uninstall original until tested. Always start by testing on copies of files.

@@ -1,0 +1,20 @@
+<resources>
+<style name="DuplicutterTheme" parent="android:style/Theme.Material.NoActionBar">
+   <item name="android:colorAccent">#35DDFB</item>
+   <item name="android:colorControlActivated">#35DDFB</item>
+   <item name="android:colorControlNormal">#A6CEEC</item>
+   <item name="android:statusBarColor">#041127</item>
+   <item name="android:navigationBarColor">#041127</item>
+   <item name="android:windowLightStatusBar">false</item>
+   <item name="android:windowActionModeOverlay">true</item>
+   <item name="android:alertDialogTheme">@style/DuplicutterDialog</item>
+</style>
+<style name="DuplicutterDialog" parent="android:style/Theme.Material.Dialog.Alert">
+   <item name="android:windowBackground">@drawable/duplicutter_dialog_bg</item>
+   <item name="android:colorAccent">#3CE6FF</item>
+   <item name="android:textColorPrimary">#F4F9FF</item>
+   <item name="android:textColorSecondary">#AED2F5</item>
+   <item name="android:colorControlNormal">#ACD9FD</item>
+   <item name="android:colorControlActivated">#3CE6FF</item>
+</style>
+</resources>
