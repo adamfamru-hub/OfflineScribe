@@ -78,7 +78,7 @@ public class MainActivity extends Activity {
     HorizontalScrollView navScroll=new HorizontalScrollView(this);navScroll.setHorizontalScrollBarEnabled(false);
     nav=new LinearLayout(this);nav.setOrientation(0);nav.setBackgroundColor(Color.WHITE);
     String[] titles={"HOME","COPIES","VERSIONS","FILES","REVIEW"};
-    for(String t:titles){TextView n=label(t,12,t.equals(tab));n.setPadding(px(12),px(12),px(12),px(12));n.setTextColor(t.equals(tab)?blue:ink);n.setOnClickListener(v->{tab=t;page=0;query="";filter="All";render();});nav.addView(n);}
+    for(String t:titles){TextView n=label(t,12,t.equals(tab));n.setPadding(px(12),px(12),px(12),px(12));n.setTextColor(t.equals(tab)?blue:ink);n.setOnClickListener(v->{tab=t;page=0;query="";filter="All";selected.clear();render();});nav.addView(n);}
     navScroll.addView(nav);root.addView(navScroll);
     toolbar=new LinearLayout(this);toolbar.setOrientation(1);toolbar.setPadding(px(10),px(5),px(10),px(5));root.addView(toolbar);
     if(tab.equals("HOME"))renderHomeToolbar();
@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
     else {
       selectionLabel=label(selected.size()+" selected",12,true);footer.addView(selectionLabel);
       LinearLayout actions=new LinearLayout(this);actions.setOrientation(0);
-      Button pick=btn("SELECT CANDIDATES",()->{for(RowItem r:allRows)if(r.f!=null&&(duplicate.contains(r.f.key)||older.contains(r.f.key)))selected.add(r.f.key);refreshList();});
+      Button pick=btn("SELECT FILES",()->selectScope());
       actions.addView(pick,new LinearLayout.LayoutParams(0,px(48),1));
       Button clear=btn("CLEAR",()->{selected.clear();refreshList();});actions.addView(clear,new LinearLayout.LayoutParams(0,px(48),0.55f));
       footer.addView(actions);
@@ -200,7 +200,8 @@ public class MainActivity extends Activity {
     int count=filtered.size();int maxPage=Math.max(0,(count-1)/PAGE_SIZE);page=Math.max(0,Math.min(page,maxPage));
     int start=page*PAGE_SIZE,end=Math.min(start+PAGE_SIZE,count);
     for(int i=start;i<end;i++)displayRows.add(filtered.get(i));
-    listView.setAdapter(new RowAdapter(displayRows));listView.setOnItemClickListener((p,v,pos,id)->{
+    int oldFirst=listView.getFirstVisiblePosition();View oldTop=listView.getChildAt(0);int oldOffset=oldTop==null?0:oldTop.getTop();
+    listView.setAdapter(new RowAdapter(displayRows));if(oldFirst>0)listView.setSelectionFromTop(oldFirst,oldOffset);listView.setOnItemClickListener((p,v,pos,id)->{
       if(pos>=displayRows.size())return;RowItem r=displayRows.get(pos);
       if(r.h!=null){restoreConfirm(r.h);return;}
       if(r.f!=null){if(r.kind!=null&&r.kind.equals("KEEPER")&&(tab.equals("COPIES")||tab.equals("VERSIONS")))return;
@@ -234,6 +235,17 @@ public class MainActivity extends Activity {
     }
     if(selectionLabel!=null)selectionLabel.setText(selected.size()+" selected");
   }
+  void selectScope(){
+    new AlertDialog.Builder(this).setTitle("Select files")
+      .setItems(new String[]{"Visible page only","All matching files across pages"},(d,index)->{
+        Iterable<RowItem> pool=index==0?displayRows:allRows;
+        String q=query.trim().toLowerCase(Locale.ROOT);
+        for(RowItem r:pool)if(r.f!=null&&match(r,q)&&!"KEEPER".equals(r.kind))
+          selected.add(r.f.key);
+        if(selectionLabel!=null)selectionLabel.setText(selected.size()+" selected");
+        refreshList();
+      }).setNegativeButton("Cancel",null).show();
+  }
   boolean match(RowItem r,String needle){
     if(r.f==null)return true;
     if(!filter.equals("All")&&!filter.equals(r.f.category))return false;
@@ -241,7 +253,7 @@ public class MainActivity extends Activity {
   }
   RowItem fileRow(FileEntry f,boolean protectedCopy){
     RowItem r=new RowItem((duplicate.contains(f.key)?"[EXTRA COPY]  ":older.contains(f.key)?"[OLDER]  ":"")+f.name,
-      f.category+"  ·  "+fmt(f.size)+"  ·  "+f.folder+(f.hashKey==null?"":"  ·  SHA-256"),false);
+      f.category+"  ·  "+fmt(f.size)+"  ·  "+f.folder+(f.hashKey==null?"":"  ·  SHA-256 "+f.hashKey.substring(f.hashKey.indexOf(":")+1,Math.min(f.hashKey.length(),f.hashKey.indexOf(":")+13))),false);
     r.f=f;r.kind=protectedCopy?"KEEPER":"FILE";return r;
   }
   void addSummary(){
