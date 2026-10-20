@@ -10,6 +10,8 @@ import android.text.Editable;
 import android.text.TextWatcher;
 import android.net.Uri;
 import android.provider.DocumentsContract;
+import android.provider.Settings;
+import android.os.Environment;
 import android.view.*;
 import android.widget.*;
 import org.json.*;
@@ -21,7 +23,7 @@ import java.util.regex.*;
 
 public class MainActivity extends Activity {
   static final int PICK_SOURCE=51, PICK_REVIEW=52, PICK_BUCKET=53;
-  String pendingBucketName="";
+  String pendingBucketName=""; boolean globalScan=false, awaitingAllFilesAccess=false;
   String tab="HOME",query="",filter="All",sort="Newest";
   int page=0; static final int PAGE_SIZE=80;
   LinearLayout root,top,nav,toolbar,footer; ListView listView; TextView info,pager,selectionLabel;
@@ -601,7 +603,33 @@ public class MainActivity extends Activity {
       while(c.moveToNext())visitor.found(c.getString(0),c.getString(1),c.getString(2),c.isNull(3)?0:c.getLong(3),c.isNull(4)?0:c.getLong(4));
     }
   }
-  void scan(){if(working||roots().isEmpty()){message="Add a source folder first.";render();return;}
+  boolean allFilesGranted(){return Build.VERSION.SDK_INT>=30&&Environment.isExternalStorageManager();}
+  void scanAll(){
+    if(Build.VERSION.SDK_INT<30){
+      new AlertDialog.Builder(this).setTitle("Choose folders")
+        .setMessage("On this Android version, choose folders in the file picker. Scan All Storage requires Android 11 or newer and explicit special access.")
+        .setPositiveButton("CHOOSE FOLDER",(d,w)->picker(PICK_SOURCE)).setNegativeButton("CANCEL",null).show();return;
+    }
+    if(!allFilesGranted()){
+      awaitingAllFilesAccess=true;
+      new AlertDialog.Builder(this).setTitle("Allow all-files access?")
+        .setMessage("Android requires your approval for a full scan, including Downloads. Duplicutter will inspect locally stored files on primary shared storage. Protected Android/data and system areas remain restricted. Nothing is deleted automatically.")
+        .setNegativeButton("NOT NOW",(d,w)->awaitingAllFilesAccess=false)
+        .setPositiveButton("OPEN SETTINGS",(d,w)->{
+          try{Intent intent=new Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,Uri.parse("package:"+getPackageName()));startActivity(intent);}
+          catch(Exception e){try{startActivity(new Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION));}
+          catch(Exception err){update("Android settings could not be opened.");}}
+        }).show();return;
+    }
+    scan(true);
+  }
+  @Override public void onResume(){super.onResume();
+    if(awaitingAllFilesAccess&&allFilesGranted()){awaitingAllFilesAccess=false;
+      if(root!=null)root.postDelayed(()->scan(true),200);}
+  }
+  void scan(){scan(false);}
+  void scan(boolean all){if(working||(!all&&roots().isEmpty())){message="Select a folder or choose SCAN ALL STORAGE.";render();return;}
+    globalScan=all;
     working=true;files.clear();duplicate.clear();older.clear();selected.clear();dupGroups.clear();revGroups.clear();
     render();update("Scanning selected file categories…");
     jobs.submit(()->{
@@ -609,7 +637,8 @@ public class MainActivity extends Activity {
         final ArrayList<String> deniedTrees=new ArrayList<>();for(Bucket b:buckets())deniedTrees.add(b.tree);
         if(review()!=null)deniedTrees.add(review());
         final HashSet<String> physicalFiles=new HashSet<>();
-        for(String root:roots()){
+        if(all) indexSharedStorage(physicalFiles,deniedTrees,issues);
+        if(!all)for(String root:roots()){
           String first=DocumentsContract.getTreeDocumentId(Uri.parse(root));
           ArrayDeque<String[]> q=new ArrayDeque<>();q.add(new String[]{first,""});HashSet<String> seen=new HashSet<>();
           while(!q.isEmpty()){
@@ -671,7 +700,51 @@ public class MainActivity extends Activity {
       finally{runOnUiThread(()->{working=false;render();});}
     });
   }
-  static String stem(String n){int i=n.lastIndexOf('.');return i<0?n:n.substring(0,i);}
+  void indexSharedStorage(HashSet<String> visitedFiles,List<String> exclusions,List<String> issues){
+    File base=Environment.getExternalStorageDirectory();
+    if(base==null||!base.isDirectory()){issues.add("Primary storage is not available");return;}
+    HashSet<String> denied=new HashSet<>();
+    for(String link:exclusions)try{
+      String treeId=DocumentsContract.getTreeDocumentId(Uri.parse(link));
+      if(treeId!=null&&treeId.startsWith("primary:")){
+        String rel=treeId.substring("primary:".length());
+        denied.add(new File(base,rel).getCanonicalPath());
+      }
+    }catch(Exception ignored){}
+    ArrayDeque<File> folders=new ArrayDeque<>();folders.add(base);HashSet<String> seen=new HashSet<>();
+    while(!folders.isEmpty()){
+      File directory=folders.removeFirst();String real;
+      try{real=directory.getCanonicalPath();}catch(Exception e){continue;}
+      if(!seen.add(real)||denied.contains(real))continue;
+      String lower=directory.getName().toLowerCase(Locale.ROOT);
+      if(lower.equals("android")||lower.equals(".thumbnails")||lower.equals("reportkeeper_review")||
+         lower.equals("duplicutter_review")||lower.equals(".trash")||lower.equals(".trashed")||lower.equals("lost.dir"))continue;
+      File[] children=directory.listFiles();if(children==null)continue;
+      for(File c:children){
+        try{
+          if(c.isDirectory()){if(!c.isHidden())folders.add(c);continue;}
+          if(!c.isFile())continue;
+          String type=category(c.getName(),null);if(!allowed(type))continue;
+          String absolute=c.getCanonicalPath();
+          if(!visitedFiles.add("FS|"+absolute))continue;
+          FileEntry entry=new FileEntry();entry.path=absolute;entry.tree="GLOBAL";entry.parent=directory.getAbsolutePath();
+          entry.id=absolute;entry.name=c.getName();entry.folder=directory.getAbsolutePath().replace(base.getAbsolutePath(),"");
+          entry.mime=mime(entry.name);entry.key="FS|"+absolute;entry.category=type;
+          entry.size=c.length();entry.modified=c.lastModified();files.add(entry);
+        }catch(Exception ex){if(issues.size()<100)issues.add(ex.getMessage());}
+      }
+      if(files.size()>0&&files.size()%1000==0)update("Indexing shared storage: "+files.size()+" files");
+    }
+  }
+  boolean removeFile(FileEntry f)throws Exception{
+    if(f.path!=null){
+      File source=new File(f.path);
+      if(!source.exists())throw new FileNotFoundException("File disappeared");
+      return source.delete();
+    }
+    return DocumentsContract.deleteDocument(getContentResolver(),f.documentUri());
+  }
+    static String stem(String n){int i=n.lastIndexOf('.');return i<0?n:n.substring(0,i);}
   static String family(String name){
     String s=stem(name).toLowerCase(Locale.ROOT).replaceAll("[_().-]+"," ");
     s=s.replaceAll("\\b(?:rev(?:ision)?|ver(?:sion)?|v)\\s*\\d{1,4}\\b"," ");
@@ -779,14 +852,14 @@ public class MainActivity extends Activity {
       throw e;
     }
     FileCopy c=new FileCopy();c.tree=dest;c.doc=DocumentsContract.getDocumentId(created);
-    c.sourceTree=f.tree;c.sourceParent=f.parent;c.originalName=f.name;c.reviewName=name;c.size=f.size;c.created=System.currentTimeMillis();c.bucket=bucket;
+    c.sourceTree=f.tree;c.sourceParent=f.parent;c.sourcePath=f.path;c.originalName=f.name;c.reviewName=name;c.size=f.size;c.created=System.currentTimeMillis();c.bucket=bucket;
     // Journal BEFORE source deletion. A crash during transfer leaves an extra file, never an untracked loss.
     ArrayList<FileCopy> records=history();records.add(0,c);
     try{saveHistory(records);}catch(Exception ex){
       try{DocumentsContract.deleteDocument(getContentResolver(),created);}catch(Exception ignored){}
       throw new IOException("Could not record restore history; original kept",ex);
     }
-    if(!DocumentsContract.deleteDocument(getContentResolver(),f.documentUri())){
+    if(!removeFile(f)){
       boolean copyRemoved=false;try{copyRemoved=DocumentsContract.deleteDocument(getContentResolver(),created);}catch(Exception ignored){}
       if(copyRemoved){records.remove(0);saveHistory(records);}
       throw new IOException("Source could not be deleted. Original remains; any review copy was retained for safety.");
@@ -820,12 +893,20 @@ public class MainActivity extends Activity {
     .setNegativeButton("Cancel",null).setPositiveButton("RESTORE",(d,w)->{
       working=true;update("Restoring file…");
       jobs.submit(()->{String error=null;try{
-        final boolean[] exists={false};children(e.sourceTree,e.sourceParent,(id,n,m,s,t)->{if(n.equals(e.originalName))exists[0]=true;});
-        String outName=exists[0]?"RESTORED_"+System.currentTimeMillis()+"_"+e.originalName:e.originalName;
-        Uri original=doc(e.tree,e.doc);
-        Uri created=DocumentsContract.createDocument(getContentResolver(),doc(e.sourceTree,e.sourceParent),mime(e.originalName),outName);
-        if(created==null)throw new IOException("Unable to create restored file");
-        try{copyVerified(original,created);}catch(Exception x){try{DocumentsContract.deleteDocument(getContentResolver(),created);}catch(Exception ignored){}throw x;}
+        Uri original=doc(e.tree,e.doc);Uri created=null;
+        if(e.sourcePath!=null&&!e.sourcePath.isEmpty()){
+          File proposed=new File(e.sourcePath);
+          File restore=proposed.exists()?new File(proposed.getParentFile(),"RESTORED_"+System.currentTimeMillis()+"_"+e.originalName):proposed;
+          if(!restore.getParentFile().exists())throw new IOException("Original folder no longer exists");
+          created=Uri.fromFile(restore);
+          try{copyVerified(original,created);}catch(Exception x){restore.delete();throw x;}
+        }else{
+          final boolean[] exists={false};children(e.sourceTree,e.sourceParent,(id,n,m,s,t)->{if(n.equals(e.originalName))exists[0]=true;});
+          String outName=exists[0]?"RESTORED_"+System.currentTimeMillis()+"_"+e.originalName:e.originalName;
+          created=DocumentsContract.createDocument(getContentResolver(),doc(e.sourceTree,e.sourceParent),mime(e.originalName),outName);
+          if(created==null)throw new IOException("Unable to create restored file");
+          try{copyVerified(original,created);}catch(Exception x){try{DocumentsContract.deleteDocument(getContentResolver(),created);}catch(Exception ignored){}throw x;}
+        }
         if(!DocumentsContract.deleteDocument(getContentResolver(),original))
           throw new IOException("Verified restored copy is safe but review source could not be deleted.");
         ArrayList<FileCopy> entries=history();entries.removeIf(c->c.doc.equals(e.doc)&&c.tree.equals(e.tree));saveHistory(entries);
