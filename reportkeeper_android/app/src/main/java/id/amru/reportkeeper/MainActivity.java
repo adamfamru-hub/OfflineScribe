@@ -26,7 +26,7 @@ public class MainActivity extends Activity {
   String pendingBucketName=""; boolean globalScan=false, awaitingAllFilesAccess=false;
   String tab="HOME",query="",filter="All",sort="Newest";
   int page=0; static final int PAGE_SIZE=80;
-  LinearLayout root,top,nav,toolbar,footer; ListView listView; TextView info,pager,selectionLabel;
+  LinearLayout root,top,nav,toolbar,footer,pagerRow; ListView listView; TextView info,pager,selectionLabel;
   final ArrayList<RowItem> allRows=new ArrayList<>(),displayRows=new ArrayList<>();
   final Map<String,ArrayList<FileEntry>> dupGroups=new LinkedHashMap<>(),revGroups=new LinkedHashMap<>();
   final String[] categories={"Documents","Photos","Videos","Audio","Archives","Other"};
@@ -186,7 +186,16 @@ public class MainActivity extends Activity {
   }
     void gap(LinearLayout c,int h){View v=new View(this);c.addView(v,new LinearLayout.LayoutParams(1,px(h)));}
   void render(){
-    root=new LinearLayout(this);root.setOrientation(1);root.setBackground(
+    root=new LinearLayout(this);root.setOrientation(1);
+    root.setOnApplyWindowInsetsListener((v,insets)->{
+      if(Build.VERSION.SDK_INT>=35){
+        android.graphics.Insets safe=insets.getInsets(android.view.WindowInsets.Type.systemBars());
+        if(root.getPaddingTop()!=safe.top||root.getPaddingBottom()!=safe.bottom)
+          root.setPadding(0,safe.top,0,safe.bottom);
+      }
+      return insets;
+    });
+    root.setBackground(
       gradient(C("#09285B"),C("#03112E"),0,0));
     top=new LinearLayout(this);top.setOrientation(1);
     top.setPadding(px(14),px(8),px(14),px(6));
@@ -212,7 +221,7 @@ public class MainActivity extends Activity {
       nav.addView(item,lp);item.setOnClickListener(v->jump(t));
     }
     tabs.addView(nav);root.addView(tabs);
-    listView=null;selectionLabel=null;pager=null;
+    listView=null;selectionLabel=null;pager=null;pagerRow=null;
     if(tab.equals("HOME")){
       ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
       LinearLayout home=new LinearLayout(this);home.setOrientation(1);
@@ -221,7 +230,7 @@ public class MainActivity extends Activity {
       root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
       TextView hint=label("OFFLINE  •  SHA-256 VERIFIED  •  YOU CONTROL DELETION",10,true);
       hint.setTextColor(C("#9CC6FF"));hint.setGravity(Gravity.CENTER);root.addView(hint);
-      setContentView(root);return;
+      setContentView(root);root.requestApplyInsets();return;
     }
     toolbar=new LinearLayout(this);toolbar.setOrientation(1);
     toolbar.setPadding(px(12),px(3),px(12),px(7));root.addView(toolbar);
@@ -237,18 +246,18 @@ public class MainActivity extends Activity {
     if(tab.equals("REVIEW")){
       TextView note=label("Review history  •  Tap an item to restore",12,false);footer.addView(note);
     }else{
-      selectionLabel=label(selected.size()+" selected",12,true);
-      footer.addView(selectionLabel);
       LinearLayout buttons=new LinearLayout(this);buttons.setOrientation(0);
-      buttons.addView(btn("SELECT",()->selectScope()),new LinearLayout.LayoutParams(0,px(47),1));
-      buttons.addView(btn("CLEAR",()->{selected.clear();refreshList();}),new LinearLayout.LayoutParams(0,px(47),0.67f));
+      selectionLabel=label(selected.size()+" selected",11,true);selectionLabel.setGravity(Gravity.CENTER_VERTICAL);
+      buttons.addView(selectionLabel,new LinearLayout.LayoutParams(0,px(40),0.9f));
+      buttons.addView(btn("SELECT ALL",()->selectAllExtras()),new LinearLayout.LayoutParams(0,px(40),1.25f));
+      buttons.addView(btn("CLEAR",()->{selected.clear();refreshList();}),new LinearLayout.LayoutParams(0,px(40),0.75f));
       footer.addView(buttons);
       LinearLayout ops=new LinearLayout(this);ops.setOrientation(0);
-      ops.addView(btn("MOVE / REVIEW",()->confirm(false)),new LinearLayout.LayoutParams(0,px(48),1));
-      ops.addView(btn("DELETE",()->confirm(true)),new LinearLayout.LayoutParams(0,px(48),0.65f));
+      ops.addView(btn("MOVE / REVIEW",()->confirm(false)),new LinearLayout.LayoutParams(0,px(46),1));
+      ops.addView(btn("DELETE EXTRAS",()->confirm(true)),new LinearLayout.LayoutParams(0,px(46),0.86f));
       footer.addView(ops);
     }
-    setContentView(root);refreshList();
+    setContentView(root);root.requestApplyInsets();refreshList();
   }
   void buildDashboard(LinearLayout home){
     LinearLayout sources=panel();home.addView(sources,margins(-1,-2,3,10));
@@ -291,7 +300,11 @@ public class MainActivity extends Activity {
     summary.addView(next);
     LinearLayout quick=panel();home.addView(quick,margins(-1,-2,3,11));
     sectionHeader(quick,"Quick Actions","Find and manage duplicates in seconds.");
-    quick.addView(btn("✦  SCAN NOW",()->scan()),new LinearLayout.LayoutParams(-1,px(56)));
+    quick.addView(btn("SCAN ALL STORAGE",()->scanAll()),new LinearLayout.LayoutParams(-1,px(54)));
+    TextView note=label("Android permission required once for full-device scan. Protected system folders remain restricted.",11,false);
+    note.setTextColor(C("#A5C9F0"));quick.addView(note);
+    quick.addView(btn("SCAN SELECTED FOLDERS",()->scan()),new LinearLayout.LayoutParams(-1,px(48)));
+    quick.addView(btn("SAFE AUTO CLEANUP  →",()->autoCleanup()),new LinearLayout.LayoutParams(-1,px(52)));
     quick.addView(btn("VIEW EXACT COPIES  →",()->jump("COPIES")),new LinearLayout.LayoutParams(-1,px(50)));
     quick.addView(btn("MOVE & ORGANIZE  →",()->jump("REVIEW")),new LinearLayout.LayoutParams(-1,px(50)));
   }
@@ -442,26 +455,19 @@ public class MainActivity extends Activity {
     listView.setOnItemLongClickListener((parent,view,pos,id)->{
       if(pos<0||pos>=displayRows.size())return false;
       RowItem r=displayRows.get(pos);if(r.f==null)return false;
-      try{
-        Intent open=new Intent(Intent.ACTION_VIEW);
-        open.setDataAndType(r.f.documentUri(),r.f.mime==null?"application/octet-stream":r.f.mime);
-        open.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        startActivity(Intent.createChooser(open,"Open file in"));
-      }catch(Exception ex){new AlertDialog.Builder(this).setMessage("No compatible app to preview this file.").setPositiveButton("OK",null).show();}
-      return true;
+      showDetails(r.f);return true;
     });
-    if(footer!=null&&!tab.equals("HOME")&&!tab.equals("REVIEW")){
-      // Refresh footer pager without rebuilding the search field.
-      if(pager!=null&&pager.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)pager.getParent()).removeView(pager);
-      while(footer.getChildCount()>3)footer.removeViewAt(0);
-      LinearLayout pageRow=new LinearLayout(this);pageRow.setOrientation(0);
+    if(toolbar!=null&&!tab.equals("HOME")&&!tab.equals("REVIEW")){
+      if(pagerRow!=null&&pagerRow.getParent()==toolbar)toolbar.removeView(pagerRow);
+      pagerRow=new LinearLayout(this);pagerRow.setOrientation(0);pagerRow.setGravity(Gravity.CENTER_VERTICAL);
       Button prev=btn("◀ PREV",()->{if(page>0){page--;refreshList();listView.setSelection(0);}});
-      prev.setEnabled(page>0);pageRow.addView(prev,new LinearLayout.LayoutParams(0,px(40),0.85f));
-      pager=label("Page "+(page+1)+"/"+(maxPage+1)+"  ·  "+count+" rows",12,true);pager.setGravity(Gravity.CENTER);
-      pager.setOnClickListener(v->jumpPage(maxPage));pageRow.addView(pager,new LinearLayout.LayoutParams(0,px(40),1.6f));
+      prev.setEnabled(page>0);pagerRow.addView(prev,new LinearLayout.LayoutParams(0,px(36),0.8f));
+      pager=label("Page "+(page+1)+"/"+(maxPage+1)+" • "+count+" rows",11,true);
+      pager.setTextColor(C("#B5DDFF"));pager.setGravity(Gravity.CENTER);
+      pager.setOnClickListener(v->jumpPage(maxPage));pagerRow.addView(pager,new LinearLayout.LayoutParams(0,px(36),1.55f));
       Button next=btn("NEXT ▶",()->{if(page<maxPage){page++;refreshList();listView.setSelection(0);}});
-      next.setEnabled(page<maxPage);pageRow.addView(next,new LinearLayout.LayoutParams(0,px(40),0.85f));
-      footer.addView(pageRow,0);
+      next.setEnabled(page<maxPage);pagerRow.addView(next,new LinearLayout.LayoutParams(0,px(36),0.8f));
+      toolbar.addView(pagerRow,margins(-1,px(37),4,1));
     }
     if(selectionLabel!=null)selectionLabel.setText(selected.size()+" selected");
   }
@@ -511,7 +517,7 @@ public class MainActivity extends Activity {
         checked?gradient(C("#1762AA"),C("#0D3474"),17,C("#3CCAFD")):subtle());
       LinearLayout line=new LinearLayout(MainActivity.this);line.setOrientation(0);
       line.setGravity(Gravity.CENTER_VERTICAL);
-      if(r.f!=null && !(r.kind!=null&&r.kind.equals("KEEPER")&&(tab.equals("COPIES")||tab.equals("VERSIONS")))){
+      if(r.f!=null && (safeCandidate(r.f) || (tab.equals("FILES") && !protectedKeepers.contains(r.f.key)) || (tab.equals("VERSIONS") && older.contains(r.f.key)))){
         CheckBox select=new CheckBox(MainActivity.this);
         select.setButtonTintList(android.content.res.ColorStateList.valueOf(C("#4DDFFF")));
         select.setChecked(checked);
