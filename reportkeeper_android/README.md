@@ -1,17 +1,8 @@
-# ReportKeeper Beta v0.2.0
-
-Native offline Android file manager. Created by PERSPICAL; developed by Adam F. Amru.
-
-- Scan any enabled file categories (documents, photos, videos, audio, archives, other)
-- Byte-for-byte duplicate groups by SHA-256, independently of filenames
-- Report revision recommendations with three latest recognized revision groups retained; versions are inferred and should be reviewed
-- Fast ListView virtualized rows, pages of 80, searchable/sortable file browsing with fixed header and actions
-- Multiple named move destinations, category subfolders, SHA-256 verified transfer, and restore history
-- Tap checkbox to select, long-press a file to open using an installed app, confirm before irreversible deletion
-- Folder-scoped Android Storage Access Framework; no INTERNET permission, analytics, cloud processing or automatic deletion.
-
-Version 0.2 uses a separate **id.amru.reportkeeper.beta** package to run alongside v0.1 because GitHub debug signing certificates are ephemeral. The previous version's move history remains in the previous app. When promoting to stable, establish a persistent signing key.
-
-Known limitations: Exact SHA-256 matches do not identify visually similar but recompressed photos or modified files. File version guesses are based on filenames. Some Android locations (e.g., restricted system folders and root Downloads) are inaccessible with the folder picker. Same-device moves do not free storage capacity; deletion might bypass Recycle Bin. Test with copies of files first.
-
-Source code is hosted on a build branch inside an existing public repository; **no user's actual files are included in source code or uploaded by the app**.
+# Duplicutter Android v0.3.0 beta
+Created by PERSPICAL • Developed by Adam F. Amru.
+Branding: selected glossy blue-cyan diagonal-cut icon, integrated as a WebP drawable and launch icon.
+Native offline Android file manager for Samsung / Android 8.0+.
+Features: SHA-256 byte-for-byte duplicate detection for photos, videos, documents, audio, archives, and other files; old report revision suggestions preserving three recognized revisions; multi-folder SAF selection, copy/verify/delete move to multiple destinations and category subfolders, restore history, and manual review.
+Interface: dark navy/cyan app branding, first-launch onboarding, source/destination cards, scan category selection, storage summary, searchable paginated 80-row results, and fixed action bar.
+Build debug APK in GitHub Actions on isolated branch. Application ID id.amru.duplicutter, side-by-side install with older ReportKeeper beta.
+Safety: source folders require user selection, no internet permission; no file deletion without explicit user confirmation; move verifies SHA-256 and records restore journal before original removal. Same-storage moves do not free space. Test on copies before using originals.
