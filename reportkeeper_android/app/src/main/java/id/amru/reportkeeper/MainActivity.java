@@ -34,26 +34,66 @@ public class MainActivity extends Activity {
   ArrayList<Bucket> buckets(){ArrayList<Bucket> out=new ArrayList<>();JSONArray j=array("buckets");for(int i=0;i<j.length();i++)try{JSONObject o=j.getJSONObject(i);out.add(new Bucket(o.getString("name"),o.getString("tree")));}catch(Exception ignored){}return out;}
   void saveBuckets(List<Bucket> b){JSONArray a=new JSONArray();for(Bucket k:b){JSONObject o=new JSONObject();try{o.put("name",k.name);o.put("tree",k.tree);a.put(o);}catch(Exception ignored){}}prefs().edit().putString("buckets",a.toString()).apply();}
   boolean allowed(String kind){return prefs().getBoolean("type_"+kind,true);}
+  static int keeperScore(FileEntry f){
+    String n=stem(f.name).toLowerCase(Locale.ROOT);
+    int points=0;
+    if(n.matches(".*(?:\\s|[_-])copy(?:\\s?\\d+)?$"))points-=160;
+    if(n.matches(".*\\s*\\(\\d+\\)$"))points-=170;
+    if(n.matches(".*(?:[_-]|\\s)\\d{1,2}$"))points-=80;
+    if(n.contains("original")||n.contains("master"))points+=130;
+    String dir=f.folder==null?"":f.folder.toLowerCase(Locale.ROOT);
+    if(dir.contains("camera")||dir.contains("dcim"))points+=60;
+    if(dir.contains("download"))points-=10;
+    if(dir.contains("copy"))points-=40;
+    return points;
+  }
+  static Comparator<FileEntry> originalFirst(){
+    return (a,b)->{int c=Integer.compare(keeperScore(b),keeperScore(a));if(c!=0)return c;
+      c=Long.compare(a.modified,b.modified);if(c!=0)return c;
+      return a.key.compareTo(b.key);};
+  }
+  boolean safeCandidate(FileEntry f){return duplicate.contains(f.key)&&!protectedKeepers.contains(f.key);}
+  ArrayList<FileEntry> extraCandidates(){
+    ArrayList<FileEntry> out=new ArrayList<>();for(FileEntry f:files)if(safeCandidate(f))out.add(f);return out;
+  }
+  void selectAllExtras(){
+    selected.clear();for(FileEntry f:files)if(safeCandidate(f))selected.add(f.key);
+    if(selected.isEmpty())new AlertDialog.Builder(this).setTitle("Nothing to clean").setMessage("No extra byte-identical copies were found in the latest scan.").setPositiveButton("OK",null).show();
+    if(listView==null)jump("COPIES");else refreshList();
+  }
+  void autoCleanup(){
+    if(working)return;
+    ArrayList<FileEntry> extras=extraCandidates();
+    if(extras.isEmpty()){new AlertDialog.Builder(this).setTitle("No exact duplicates").setMessage("Scan first, then return here. Only extra copies are eligible for automated cleanup.").setPositiveButton("OK",null).show();return;}
+    selected.clear();for(FileEntry f:extras)selected.add(f.key);
+    long bytes=0;for(FileEntry f:extras)bytes+=Math.max(0,f.size);
+    String detail=extras.size()+" extra copies • "+fmt(bytes)+" potential savings.\\n\\nOne original from EVERY identical group is locked and cannot be deleted.\\n\\nThe app will verify source and protected original hashes again before deletion.\\n\\nNo files are deleted until you explicitly confirm.";
+    new AlertDialog.Builder(this).setTitle("Safe Auto Cleanup - Preview")
+      .setMessage(detail.replace("\\n","\n"))
+      .setNegativeButton("REVIEW FIRST",(d,w)->jump("COPIES"))
+      .setNeutralButton("CANCEL",null)
+      .setPositiveButton("REVIEW DELETE",(d,w)->confirm(true)).show();
+  }
 
   final ExecutorService jobs=Executors.newSingleThreadExecutor();
   final HashSet<String> selected=new HashSet<>();
   final ArrayList<FileEntry> files=new ArrayList<>();
-  final HashSet<String> duplicate=new HashSet<>(), older=new HashSet<>();
+  final HashSet<String> duplicate=new HashSet<>(), older=new HashSet<>(), protectedKeepers=new HashSet<>();
   LinearLayout screen; TextView status; boolean working=false;
   final int blue=Color.rgb(8,158,255), ink=Color.rgb(240,248,255);
   String message="Choose a source folder to scan. No files are changed during scanning.";
   static final class FileEntry {
-    String tree,id,parent,name,folder,mime,key,category,hashKey; long size,modified;
-    Uri documentUri() { return DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree),id); }
+    String tree,id,parent,name,folder,mime,key,category,hashKey,path; long size,modified;
+    Uri documentUri() { return path==null?DocumentsContract.buildDocumentUriUsingTree(Uri.parse(tree),id):Uri.fromFile(new File(path)); }
   }
   static final class FileCopy {
-    String tree,doc,sourceTree,sourceParent,originalName,reviewName,bucket; long size,created;
+    String tree,doc,sourceTree,sourceParent,originalName,reviewName,bucket,sourcePath; long size,created;
     JSONObject json() throws JSONException { JSONObject j=new JSONObject();
-      j.put("tree",tree);j.put("doc",doc);j.put("sourceTree",sourceTree);j.put("sourceParent",sourceParent);
+      j.put("tree",tree);j.put("doc",doc);j.put("sourceTree",sourceTree);j.put("sourceParent",sourceParent);j.put("sourcePath",sourcePath==null?"":sourcePath);
       j.put("originalName",originalName);j.put("reviewName",reviewName);j.put("bucket",bucket==null?"Review":bucket);j.put("size",size);j.put("created",created); return j; }
     static FileCopy parse(JSONObject j) throws JSONException {FileCopy f=new FileCopy();
       f.tree=j.getString("tree");f.doc=j.getString("doc");f.sourceTree=j.getString("sourceTree");
-      f.sourceParent=j.getString("sourceParent");f.originalName=j.getString("originalName");
+      f.sourceParent=j.getString("sourceParent");f.sourcePath=j.optString("sourcePath","");f.originalName=j.getString("originalName");
       f.reviewName=j.getString("reviewName");f.bucket=j.optString("bucket","Review");f.size=j.getLong("size");f.created=j.getLong("created");return f;}
   }
   android.content.SharedPreferences prefs(){return getSharedPreferences("rk",MODE_PRIVATE);}
@@ -220,7 +260,7 @@ public class MainActivity extends Activity {
       .setMessage("The folder and its contents will not be deleted.")
       .setNegativeButton("Cancel",null).setPositiveButton("REMOVE",(di,w)->{
         ArrayList<String> a=roots();a.remove(r);prefs().edit().putString("roots",new JSONArray(a).toString()).apply();
-        files.clear();dupGroups.clear();revGroups.clear();selected.clear();older.clear();duplicate.clear();render();
+        files.clear();dupGroups.clear();revGroups.clear();protectedKeepers.clear();selected.clear();older.clear();duplicate.clear();render();
       }).show();
     });
     LinearLayout dest=panel();home.addView(dest,margins(-1,-2,3,10));
@@ -357,7 +397,7 @@ public class MainActivity extends Activity {
       for(ArrayList<FileEntry> g:dupGroups.values()){
         if(g.size()<2)continue;long waste=0;for(int i=1;i<g.size();i++)waste+=g.get(i).size;
         RowItem head=new RowItem("IDENTICAL CONTENT  ·  "+g.size()+" files","SHA-256 verified  ·  "+fmt(waste)+" potential saving",true);allRows.add(head);
-        for(FileEntry f:g){RowItem item=fileRow(f,!duplicate.contains(f.key));allRows.add(item);}
+        for(FileEntry f:g){RowItem item=fileRow(f,!safeCandidate(f));allRows.add(item);}
       }
     } else if(tab.equals("VERSIONS")){
       for(Map.Entry<String,ArrayList<FileEntry>> e:revGroups.entrySet()){
@@ -392,7 +432,7 @@ public class MainActivity extends Activity {
     listView.setAdapter(new RowAdapter(displayRows));if(oldFirst>0)listView.setSelectionFromTop(oldFirst,oldOffset);listView.setOnItemClickListener((p,v,pos,id)->{
       if(pos>=displayRows.size())return;RowItem r=displayRows.get(pos);
       if(r.h!=null){restoreConfirm(r.h);return;}
-      if(r.f!=null){if(r.kind!=null&&r.kind.equals("KEEPER")&&(tab.equals("COPIES")||tab.equals("VERSIONS")))return;
+      if(r.f!=null){if(!safeCandidate(r.f) && (tab.equals("COPIES")||tab.equals("FILES"))) {showDetails(r.f);return;}if(r.kind!=null&&r.kind.equals("KEEPER")&&(tab.equals("VERSIONS")))return;
         if(selected.contains(r.f.key))selected.remove(r.f.key);else selected.add(r.f.key);refreshList();return;}
       if(r.key!=null&&r.key.startsWith("BUCKET|")){String nm=r.key.substring(7);new AlertDialog.Builder(this).setTitle("Remove destination?").setMessage(nm+" (existing files remain untouched)").setNegativeButton("Cancel",null).setPositiveButton("Remove",(d,w)->{ArrayList<Bucket> bs=buckets();bs.removeIf(b->b.name.equals(nm));saveBuckets(bs);refreshList();}).show();}
       if(r.key!=null&&r.key.startsWith("SOURCE|")){String uri=r.key.substring(7);new AlertDialog.Builder(this).setTitle("Remove source folder?").setMessage("This only removes it from the scan list.").setNegativeButton("Cancel",null).setPositiveButton("Remove",(d,w)->{ArrayList<String> a=roots();a.remove(uri);prefs().edit().putString("roots",new JSONArray(a).toString()).apply();files.clear();dupGroups.clear();revGroups.clear();older.clear();duplicate.clear();selected.clear();refreshList();}).show();}
@@ -423,18 +463,20 @@ public class MainActivity extends Activity {
     }
     if(selectionLabel!=null)selectionLabel.setText(selected.size()+" selected");
   }
-  void selectScope(){
-    new AlertDialog.Builder(this).setTitle("Select files")
-      .setItems(new String[]{"Visible page only","All matching files across pages"},(d,index)->{
-        Iterable<RowItem> pool=index==0?displayRows:allRows;
-        String q=query.trim().toLowerCase(Locale.ROOT);
-        for(RowItem r:pool)if(r.f!=null&&match(r,q)&&!"KEEPER".equals(r.kind))
-          selected.add(r.f.key);
-        if(selectionLabel!=null)selectionLabel.setText(selected.size()+" selected");
-        refreshList();
-      }).setNegativeButton("Cancel",null).show();
+  void selectScope(){selectAllExtras();}
+  void showDetails(FileEntry f){
+    StringBuilder b=new StringBuilder();
+    b.append("Name: ").append(f.name).append("\n\n");
+    b.append("Type: ").append(f.category).append("\n");
+    b.append("Size: ").append(fmt(f.size)).append(" (").append(f.size).append(" bytes)\n");
+    b.append("Folder: ").append(f.path==null?f.folder:new File(f.path).getParent()).append("\n");
+    b.append("Modified: ").append(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm",Locale.US).format(new java.util.Date(f.modified))).append("\n");
+    b.append("Role: ").append(safeCandidate(f)?"EXTRA COPY (eligible for cleanup)":"KEEP / NOT ELIGIBLE FOR DELETE").append("\n");
+    b.append("SHA-256: ").append(f.hashKey==null?"not hashed (no same-size candidate)":f.hashKey.substring(f.hashKey.indexOf(':')+1));
+    new AlertDialog.Builder(this).setTitle("File Details").setMessage(b.toString())
+      .setPositiveButton("CLOSE",null).show();
   }
-  boolean match(RowItem r,String needle){
+    boolean match(RowItem r,String needle){
     if(r.f==null)return true;
     if(!filter.equals("All")&&!filter.equals(r.f.category))return false;
     return needle.isEmpty()||(r.f.name+" "+r.f.folder).toLowerCase(Locale.ROOT).contains(needle);
@@ -602,8 +644,9 @@ public class MainActivity extends Activity {
         ArrayList<Map.Entry<String,ArrayList<FileEntry>>> groups=new ArrayList<>(byHash.entrySet());
         groups.sort((a,b)->Long.compare(b.getValue().size()*b.getValue().get(0).size,a.getValue().size()*a.getValue().get(0).size));
         for(Map.Entry<String,ArrayList<FileEntry>> e:groups)if(e.getValue().size()>1){
-          ArrayList<FileEntry> g=e.getValue();g.sort((a,b)->Long.compare(b.modified,a.modified));
-          dupGroups.put(e.getKey(),g);for(int i=1;i<g.size();i++)duplicate.add(g.get(i).key);
+          ArrayList<FileEntry> g=e.getValue();g.sort(originalFirst());
+          dupGroups.put(e.getKey(),g);protectedKeepers.add(g.get(0).key);
+          for(int i=1;i<g.size();i++)duplicate.add(g.get(i).key);
         }
         Map<String,Map<String,ArrayList<FileEntry>>> families=new LinkedHashMap<>();
         for(FileEntry f:files)if("Documents".equals(f.category)){
@@ -659,8 +702,11 @@ public class MainActivity extends Activity {
   String fmt(long sz){if(sz<1024)return sz+" B";double d=sz;String[] units={"B","KB","MB","GB","TB"};int i=0;
     while(d>=1024&&i<4){d/=1024;i++;}return String.format(Locale.US,"%.1f %s",d,units[i]);}
   void confirm(boolean delete){
-    ArrayList<FileEntry> chosen=new ArrayList<>();for(FileEntry f:files)if(selected.contains(f.key))chosen.add(f);
-    if(chosen.isEmpty()){update("Select files first.");return;}
+    ArrayList<FileEntry> chosen=new ArrayList<>();
+    for(FileEntry f:files)if(selected.contains(f.key) && (!delete||safeCandidate(f)))chosen.add(f);
+    if(chosen.isEmpty()){new AlertDialog.Builder(this).setTitle("No eligible copies selected")
+      .setMessage("For safety, deletion is restricted to extra SHA-256-identical copies. Use SELECT ALL EXTRAS to choose them without selecting originals.")
+      .setPositiveButton("OK",null).show();return;}
     if(delete){confirmDo(chosen,true,null,"",false);return;}
     ArrayList<Bucket> b=buckets();if(review()!=null)b.add(0,new Bucket("Manual Review",review()));
     if(b.isEmpty()){new AlertDialog.Builder(this).setTitle("Choose destination").setMessage("Set a manual-review folder or add a move destination from HOME first.").setPositiveButton("OK",null).show();return;}
@@ -676,7 +722,7 @@ public class MainActivity extends Activity {
           .show();
       }).setNegativeButton("Cancel",null).show();
   }
-  void confirmDo(ArrayList<FileEntry> chosen,boolean delete,String destination,String bucket,boolean byCategory){
+    void confirmDo(ArrayList<FileEntry> chosen,boolean delete,String destination,String bucket,boolean byCategory){
     long bytes=0;for(FileEntry f:chosen)bytes+=Math.max(0,f.size);
     String text=chosen.size()+" file(s), "+fmt(bytes)+".\n\n"+
       (delete?"DELETE MAY BE PERMANENT. No Recycle Bin is guaranteed. Confirm only files you do not need.":
@@ -688,13 +734,24 @@ public class MainActivity extends Activity {
     working=true;update("Processing "+chosen.size()+" selected files…");int total=chosen.size();
     jobs.submit(()->{int done=0;ArrayList<String> errors=new ArrayList<>();
       for(FileEntry f:chosen)try{
-        if(delete){if(!DocumentsContract.deleteDocument(getContentResolver(),f.documentUri()))throw new IOException("Provider refused deletion");}
+        if(delete){
+          if(!safeCandidate(f))throw new IOException("Safety lock: original or non-identical file");
+          String expected=f.hashKey;
+          if(expected==null)throw new IOException("No verified hash");
+          ArrayList<FileEntry> group=dupGroups.get(expected);
+          if(group==null||group.size()<2)throw new IOException("Duplicate group no longer available");
+          FileEntry keeper=group.get(0);
+          if(keeper.key.equals(f.key))throw new IOException("Original is locked");
+          if(!expected.equals(f.size+":"+hash(f.documentUri())))throw new IOException("Candidate changed after scan");
+          if(!expected.equals(keeper.size+":"+hash(keeper.documentUri())))throw new IOException("Original changed or is missing");
+          if(!removeFile(f))throw new IOException("Delete was denied");
+        }
         else moveVerified(f,destination,bucket,byCategory);
         done++;if(done%10==0)update("Processed "+done+" of "+total+" files…");
       }catch(Exception e){if(errors.size()<20)errors.add(f.name+": "+e.getMessage());}
       final int success=done;
       runOnUiThread(()->{working=false;files.clear();selected.clear();duplicate.clear();older.clear();dupGroups.clear();revGroups.clear();
-        message=success+" of "+total+" processed. Run a new scan to refresh file groups.";render();
+        protectedKeepers.clear();message=success+" of "+total+" processed. Run a new scan to refresh file groups.";render();
         new AlertDialog.Builder(this).setTitle("Operation result").setMessage(message+(errors.isEmpty()?"":"\n\nIssues:\n"+String.join("\n",errors.subList(0,Math.min(errors.size(),6)))))
           .setPositiveButton("OK",null).show();});
     });
