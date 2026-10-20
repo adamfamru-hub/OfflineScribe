@@ -273,38 +273,69 @@ public class MainActivity extends Activity {
     if(working)toolbar.addView(label("Scanning / processing. Controls temporarily disabled.",12,false));
   }
   void renderReviewToolbar(){
-    toolbar.addView(label("MANUAL REVIEW & MOVE HISTORY",14,true));
-    LinearLayout a=new LinearLayout(this);a.setOrientation(0);
-    a.addView(btn("CHOOSE REVIEW FOLDER",()->picker(PICK_REVIEW)),new LinearLayout.LayoutParams(0,px(45),1));
-    a.addView(btn("SCAN AGAIN",()->scan()),new LinearLayout.LayoutParams(0,px(45),0.75f));toolbar.addView(a);
+    TextView h=label("Move & Organize",19,true);toolbar.addView(h);
+    TextView sub=label("Review transfers and restore individual files.",12,false);sub.setTextColor(C("#ACCFF0"));toolbar.addView(sub);
+    LinearLayout line=new LinearLayout(this);line.setOrientation(0);
+    line.addView(btn("REVIEW FOLDER",()->picker(PICK_REVIEW)),new LinearLayout.LayoutParams(0,px(46),1));
+    line.addView(btn("ADD DESTINATION",()->addBucket()),new LinearLayout.LayoutParams(0,px(46),1));
+    toolbar.addView(line);
+  }
+    ArrayAdapter<String> menuItems(String[] options){
+    return new ArrayAdapter<String>(this,android.R.layout.simple_spinner_item,options){
+      @Override public View getView(int index,View reuse,android.view.ViewGroup parent){
+        TextView t=label(options[index],13,true);t.setTextColor(Color.WHITE);
+        t.setPadding(px(13),px(11),px(13),px(11));return t;
+      }
+      @Override public View getDropDownView(int index,View reuse,android.view.ViewGroup parent){
+        TextView t=label(options[index],13,false);t.setTextColor(Color.WHITE);
+        t.setBackgroundColor(C("#12366A"));t.setPadding(px(16),px(12),px(16),px(12));return t;
+      }
+    };
   }
   void renderBrowseToolbar(){
-    String head=tab.equals("COPIES")?"BYTE-IDENTICAL FILE GROUPS":tab.equals("VERSIONS")?"POSSIBLE OLDER REPORT VERSIONS":"ALL SCANNED FILES";
-    toolbar.addView(label(head,14,true));
-    EditText search=new EditText(this);search.setSingleLine(true);search.setTextSize(14);search.setHint("Search filename or folder…");
-    search.setText(query);search.setSelectAllOnFocus(false);
+    String head=tab.equals("COPIES")?"Exact Duplicate Finder":
+      tab.equals("VERSIONS")?"Document Versions":"Browse All Files";
+    TextView title=label(head,19,true);toolbar.addView(title);
+    TextView expl=label(tab.equals("COPIES")?"Byte-identical content, verified by SHA-256":
+      tab.equals("VERSIONS")?"Keep the latest 3 recognized revisions":"Search and organize your indexed files",11,false);
+    expl.setTextColor(C("#A4CEFB"));toolbar.addView(expl);
+    EditText search=new EditText(this);search.setSingleLine(true);search.setTextSize(14);
+    search.setTextColor(Color.WHITE);search.setHintTextColor(C("#9CC6EB"));
+    search.setHint("⌕  Search file names or locations…");search.setPadding(px(15),0,px(14),0);
+    search.setBackground(subtle());search.setText(query);
     search.addTextChangedListener(new TextWatcher(){
-      public void beforeTextChanged(CharSequence s,int start,int count,int after){}
-      public void onTextChanged(CharSequence s,int start,int before,int count){query=s.toString();page=0;refreshList();}
+      public void beforeTextChanged(CharSequence text,int start,int count,int after){}
+      public void onTextChanged(CharSequence text,int start,int before,int count){
+        query=text.toString();page=0;refreshList();
+      }
       public void afterTextChanged(Editable e){}
-    });toolbar.addView(search,new LinearLayout.LayoutParams(-1,px(48)));
-    LinearLayout a=new LinearLayout(this);a.setOrientation(0);
-    Spinner cats=new Spinner(this);String[] kinds={"All","Documents","Photos","Videos","Audio","Archives","Other"};
-    cats.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,kinds));
-    cats.setSelection(Arrays.asList(kinds).indexOf(filter));
-    cats.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-      public void onNothingSelected(android.widget.AdapterView<?> parent){}
-      public void onItemSelected(android.widget.AdapterView<?> parent,View v,int p,long id){String x=kinds[p];if(!filter.equals(x)){filter=x;page=0;refreshList();}}
-    });a.addView(cats,new LinearLayout.LayoutParams(0,px(44),1));
-    Spinner order=new Spinner(this);String[] sorts={"Newest","Largest","Name"};order.setAdapter(new ArrayAdapter<String>(this,android.R.layout.simple_spinner_dropdown_item,sorts));
-    order.setSelection(Arrays.asList(sorts).indexOf(sort));
-    order.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
-      public void onNothingSelected(android.widget.AdapterView<?> parent){}
-      public void onItemSelected(android.widget.AdapterView<?> parent,View v,int p,long id){String x=sorts[p];if(!sort.equals(x)){sort=x;page=0;refreshList();}}
-    });a.addView(order,new LinearLayout.LayoutParams(0,px(44),1));
-    toolbar.addView(a);
+    });
+    toolbar.addView(search,margins(-1,px(48),6,5));
+    LinearLayout options=new LinearLayout(this);options.setOrientation(0);
+    Spinner type=new Spinner(this);
+    String[] categoriesFilter={"All","Photos","Documents","Videos","Audio","Archives","Other"};
+    type.setAdapter(menuItems(categoriesFilter));type.setPopupBackgroundDrawable(subtle());
+    int choice=Arrays.asList(categoriesFilter).indexOf(filter);type.setSelection(Math.max(0,choice));
+    type.setBackground(subtle());
+    type.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+      public void onNothingSelected(android.widget.AdapterView<?> p){}
+      public void onItemSelected(android.widget.AdapterView<?> p,View v,int n,long id){
+        if(!filter.equals(categoriesFilter[n])){filter=categoriesFilter[n];page=0;refreshList();}
+      }
+    });
+    LinearLayout.LayoutParams tlp=new LinearLayout.LayoutParams(0,px(47),1);tlp.rightMargin=px(5);options.addView(type,tlp);
+    Spinner by=new Spinner(this);String[] order={"Newest","Largest","Name"};
+    by.setAdapter(menuItems(order));by.setPopupBackgroundDrawable(subtle());by.setBackground(subtle());
+    by.setSelection(Math.max(0,Arrays.asList(order).indexOf(sort)));
+    by.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener(){
+      public void onNothingSelected(android.widget.AdapterView<?> p){}
+      public void onItemSelected(android.widget.AdapterView<?> p,View v,int n,long id){
+        if(!sort.equals(order[n])){sort=order[n];page=0;refreshList();}
+      }
+    });
+    options.addView(by,new LinearLayout.LayoutParams(0,px(47),1));toolbar.addView(options);
   }
-  String shortPath(String root){try{return Uri.parse(root).getLastPathSegment();}catch(Exception e){return root;}}
+    String shortPath(String root){try{return Uri.parse(root).getLastPathSegment();}catch(Exception e){return root;}}
   void refreshList(){
     if(listView==null)return;
     allRows.clear();displayRows.clear();
@@ -420,29 +451,57 @@ public class MainActivity extends Activity {
     allRows.add(new RowItem("SHA-256 CONTENT COMPARISON","Find byte-identical photos, videos, audio, documents, archives and other types regardless of filename.",false));
   }
   final class RowAdapter extends BaseAdapter {
-    final ArrayList<RowItem> rows;RowAdapter(ArrayList<RowItem> items){rows=new ArrayList<>(items);}
+    final ArrayList<RowItem> rows;
+    RowAdapter(ArrayList<RowItem> items){rows=new ArrayList<>(items);}
     public int getCount(){return rows.size();}
-    public Object getItem(int i){return rows.get(i);}
-    public long getItemId(int i){return i;}
+    public Object getItem(int n){return rows.get(n);}
+    public long getItemId(int n){return n;}
     public View getView(int pos,View previous,android.view.ViewGroup parent){
       RowItem r=rows.get(pos);
-      LinearLayout box=new LinearLayout(MainActivity.this);box.setOrientation(1);
-      box.setPadding(px(13),px(r.group?11:8),px(13),px(9));
-      box.setBackgroundColor(r.group?Color.rgb(226,235,250):Color.WHITE);
-      LinearLayout titleRow=new LinearLayout(MainActivity.this);titleRow.setOrientation(0);titleRow.setGravity(Gravity.CENTER_VERTICAL);
+      LinearLayout wrapper=new LinearLayout(MainActivity.this);
+      wrapper.setOrientation(1);wrapper.setPadding(px(12),px(3),px(12),px(3));
+      LinearLayout card=new LinearLayout(MainActivity.this);card.setOrientation(1);
+      card.setPadding(px(12),px(r.group?9:8),px(12),px(8));
+      boolean checked=r.f!=null&&selected.contains(r.f.key);
+      card.setBackground(r.group?gradient(C("#1263B7"),C("#0A357A"),19,C("#3198EB")):
+        checked?gradient(C("#1762AA"),C("#0D3474"),17,C("#3CCAFD")):subtle());
+      LinearLayout line=new LinearLayout(MainActivity.this);line.setOrientation(0);
+      line.setGravity(Gravity.CENTER_VERTICAL);
       if(r.f!=null && !(r.kind!=null&&r.kind.equals("KEEPER")&&(tab.equals("COPIES")||tab.equals("VERSIONS")))){
-        CheckBox cb=new CheckBox(MainActivity.this);cb.setButtonTintList(android.content.res.ColorStateList.valueOf(blue));
-        cb.setChecked(selected.contains(r.f.key));cb.setOnClickListener(v->{if(cb.isChecked())selected.add(r.f.key);else selected.remove(r.f.key);if(selectionLabel!=null)selectionLabel.setText(selected.size()+" selected");});
-        titleRow.addView(cb);
+        CheckBox select=new CheckBox(MainActivity.this);
+        select.setButtonTintList(android.content.res.ColorStateList.valueOf(C("#4DDFFF")));
+        select.setChecked(checked);
+        select.setOnClickListener(v->{
+          if(select.isChecked())selected.add(r.f.key);else selected.remove(r.f.key);
+          if(selectionLabel!=null)selectionLabel.setText(selected.size()+" selected");
+        });
+        line.addView(select);
       }
-      TextView title=label(r.title,r.group?12:13,true);title.setMaxLines(2);titleRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-      box.addView(titleRow);
-      TextView sub=label(r.sub,r.group?11:11,false);sub.setTextColor(Color.rgb(98,112,137));sub.setMaxLines(2);box.addView(sub);
-      if(r.f!=null&&r.kind!=null&&r.kind.equals("KEEPER")){TextView keep=label("PROTECTED / KEPT",10,true);keep.setTextColor(Color.rgb(24,111,99));box.addView(keep);}
-      return box;
+      if(r.f!=null){
+        String cat=r.f.category;
+        String mark="▣";
+        if("Photos".equals(cat))mark="▧";else if("Videos".equals(cat))mark="▶";
+        else if("Audio".equals(cat))mark="♫";else if("Archives".equals(cat))mark="▤";
+        TextView glyph=label(mark,21,true);glyph.setGravity(Gravity.CENTER);
+        glyph.setTextColor(C("#AAEDFF"));glyph.setBackground(gradient(C("#1158C2"),C("#093075"),13,C("#278FEA")));
+        LinearLayout.LayoutParams gp=new LinearLayout.LayoutParams(px(43),px(43));gp.rightMargin=px(9);
+        line.addView(glyph,gp);
+      }else if(r.h!=null){
+        TextView glyph=label("↶",21,true);glyph.setTextColor(C("#58E6DD"));line.addView(glyph);
+      }
+      LinearLayout content=new LinearLayout(MainActivity.this);content.setOrientation(1);
+      TextView heading=label(r.title,r.group?14:13,true);
+      heading.setMaxLines(2);content.addView(heading);
+      TextView desc=label(r.sub,11,false);
+      desc.setTextColor(C("#B2D2F6"));desc.setMaxLines(2);content.addView(desc);
+      if(r.f!=null&&r.kind!=null&&r.kind.equals("KEEPER")){
+        TextView keep=label("KEEP ORIGINAL / LATEST",10,true);keep.setTextColor(C("#61E8D4"));content.addView(keep);
+      }
+      line.addView(content,new LinearLayout.LayoutParams(0,-2,1));card.addView(line);
+      wrapper.addView(card,new LinearLayout.LayoutParams(-1,-2));return wrapper;
     }
   }
-  void jumpPage(int max){EditText t=new EditText(this);t.setInputType(2);t.setHint("1 to "+(max+1));
+    void jumpPage(int max){EditText t=new EditText(this);t.setInputType(2);t.setHint("1 to "+(max+1));
     new AlertDialog.Builder(this).setTitle("Jump to page").setView(t).setNegativeButton("Cancel",null).setPositiveButton("Go",(d,w)->{
       try{page=Math.max(0,Math.min(max,Integer.parseInt(t.getText().toString())-1));refreshList();listView.setSelection(0);}catch(Exception ignored){}
     }).show();
@@ -457,7 +516,7 @@ public class MainActivity extends Activity {
         render();
       }).show();
   }
-  void about(){new AlertDialog.Builder(this).setTitle("ReportKeeper • v0.2.0")
+  void about(){new AlertDialog.Builder(this).setTitle("Duplicutter • v0.3.0")
     .setMessage("Created by PERSPICAL\nDeveloped by Adam F. Amru\n\nSHA-256 matches byte-for-byte file contents, not names. Similar photos with changed compression are NOT identical.\n\nOlder revisions are estimated from document filenames only; verify before removing.\n\nAll files remain on your device. No account, server, or internet transfer.\n\nAlways test using copies of your files before making changes.")
     .setPositiveButton("OK",null).show();}
   void addBucket(){
