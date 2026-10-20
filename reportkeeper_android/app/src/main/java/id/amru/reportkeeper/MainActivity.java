@@ -208,6 +208,17 @@ public class MainActivity extends Activity {
       if(r.key!=null&&r.key.startsWith("BUCKET|")){String nm=r.key.substring(7);new AlertDialog.Builder(this).setTitle("Remove destination?").setMessage(nm+" (existing files remain untouched)").setNegativeButton("Cancel",null).setPositiveButton("Remove",(d,w)->{ArrayList<Bucket> bs=buckets();bs.removeIf(b->b.name.equals(nm));saveBuckets(bs);refreshList();}).show();}
       if(r.key!=null&&r.key.startsWith("SOURCE|")){String uri=r.key.substring(7);new AlertDialog.Builder(this).setTitle("Remove source folder?").setMessage("This only removes it from the scan list.").setNegativeButton("Cancel",null).setPositiveButton("Remove",(d,w)->{ArrayList<String> a=roots();a.remove(uri);prefs().edit().putString("roots",new JSONArray(a).toString()).apply();files.clear();dupGroups.clear();revGroups.clear();older.clear();duplicate.clear();selected.clear();refreshList();}).show();}
     });
+    listView.setOnItemLongClickListener((parent,view,pos,id)->{
+      if(pos<0||pos>=displayRows.size())return false;
+      RowItem r=displayRows.get(pos);if(r.f==null)return false;
+      try{
+        Intent open=new Intent(Intent.ACTION_VIEW);
+        open.setDataAndType(r.f.documentUri(),r.f.mime==null?"application/octet-stream":r.f.mime);
+        open.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        startActivity(Intent.createChooser(open,"Open file in"));
+      }catch(Exception ex){new AlertDialog.Builder(this).setMessage("No compatible app to preview this file.").setPositiveButton("OK",null).show();}
+      return true;
+    });
     if(footer!=null&&!tab.equals("HOME")&&!tab.equals("REVIEW")){
       // Refresh footer pager without rebuilding the search field.
       if(pager!=null&&pager.getParent() instanceof android.view.ViewGroup)((android.view.ViewGroup)pager.getParent()).removeView(pager);
@@ -327,6 +338,7 @@ public class MainActivity extends Activity {
       final ArrayList<String> issues=new ArrayList<>();try{
         final ArrayList<String> deniedTrees=new ArrayList<>();for(Bucket b:buckets())deniedTrees.add(b.tree);
         if(review()!=null)deniedTrees.add(review());
+        final HashSet<String> physicalFiles=new HashSet<>();
         for(String root:roots()){
           String first=DocumentsContract.getTreeDocumentId(Uri.parse(root));
           ArrayDeque<String[]> q=new ArrayDeque<>();q.add(new String[]{first,""});HashSet<String> seen=new HashSet<>();
@@ -336,13 +348,14 @@ public class MainActivity extends Activity {
             boolean ignored=false;for(String tree:deniedTrees)try{
               if(!Uri.parse(root).getAuthority().equals(Uri.parse(tree).getAuthority()))continue;
               String target=DocumentsContract.getTreeDocumentId(Uri.parse(tree));
-              if(cur[0].equals(target)||cur[0].startsWith(target+"/")){ignored=true;break;}
+              if(!target.equals(first) && (cur[0].equals(target)||cur[0].startsWith(target+"/"))){ignored=true;break;}
             }catch(Exception ex){}
             if(ignored)continue;
             try{children(root,cur[0],(id,name,mime,size,changed)->{
               if(name==null||id==null||name.equalsIgnoreCase("ReportKeeper_Review"))return;
               if(DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)){q.add(new String[]{id,cur[1]+"/"+name});return;}
               String type=category(name,mime);if(!allowed(type))return;
+              if(!physicalFiles.add(Uri.parse(root).getAuthority()+"|"+id))return;
               FileEntry f=new FileEntry();f.tree=root;f.id=id;f.parent=cur[0];f.name=name;f.folder=cur[1];f.mime=mime;
               f.key=root+"|"+id;f.size=size;f.modified=changed;f.category=type;files.add(f);
             });}catch(Exception e){if(issues.size()<100)issues.add("Scan "+cur[1]+": "+e.getMessage());}
@@ -384,7 +397,7 @@ public class MainActivity extends Activity {
         if(!issues.isEmpty())msg+=" "+issues.size()+" read errors (inaccessible files are never marked duplicates).";
         update(msg);
       }catch(Exception e){update("Scan error: "+e.getMessage());}
-      finally{runOnUiThread(()->{working=false;refreshList();});}
+      finally{runOnUiThread(()->{working=false;render();});}
     });
   }
   static String stem(String n){int i=n.lastIndexOf('.');return i<0?n:n.substring(0,i);}
