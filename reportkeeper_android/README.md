@@ -1,0 +1,3 @@
+# ReportKeeper test APK
+
+Standalone Android test build; runs locally on Android 8+ / Samsung S24 etc. Select source and destination folders via SAF. Scan report files, SHA-256 exact duplicates, conservative filename-based old revision candidates (keep 3 revision groups), confirm deletion or set aside (copy/verify/delete), restore quarantined files. No AI content parsing, no internet uploads. Use COPY of test files first; deletion can be permanent depending on provider. The main branch of OfflineScribe is not changed. Build in GitHub Actions on isolated branch reportkeeper-apk-build. DEBUG APK for testing only.
