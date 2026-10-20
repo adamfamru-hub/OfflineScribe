@@ -40,7 +40,7 @@ public class MainActivity extends Activity {
   final ArrayList<FileEntry> files=new ArrayList<>();
   final HashSet<String> duplicate=new HashSet<>(), older=new HashSet<>();
   LinearLayout screen; TextView status; boolean working=false;
-  final int blue=Color.rgb(20,71,199), ink=Color.rgb(20,34,59);
+  final int blue=Color.rgb(8,158,255), ink=Color.rgb(240,248,255);
   String message="Choose a source folder to scan. No files are changed during scanning.";
   static final class FileEntry {
     String tree,id,parent,name,folder,mime,key,category,hashKey; long size,modified;
@@ -61,50 +61,207 @@ public class MainActivity extends Activity {
   ArrayList<String> roots(){ArrayList<String> r=new ArrayList<>();JSONArray a=array("roots");for(int i=0;i<a.length();i++)r.add(a.optString(i));return r;}
   String review(){return prefs().getString("review",null);}
   void update(String text){runOnUiThread(()->{message=text;if(info!=null)info.setText(text);});}
-  @Override public void onCreate(Bundle b){super.onCreate(b);getWindow().setStatusBarColor(Color.rgb(10,27,59));getWindow().setNavigationBarColor(Color.WHITE);render();if(!prefs().getBoolean("intro_seen",false)){prefs().edit().putBoolean("intro_seen",true).apply();new AlertDialog.Builder(this).setTitle("Welcome to ReportKeeper").setMessage("Created by PERSPICAL\nDeveloped by Adam F. Amru\n\nOrganize your device. Detect byte-identical copies with SHA-256, review older revisions, and route files into folders you choose.\n\nAll scanning happens on your device. File changes always require your confirmation.").setPositiveButton("GET STARTED",null).show();}}
+  @Override public void onCreate(Bundle b){
+    super.onCreate(b);
+    getWindow().setStatusBarColor(Color.rgb(4,14,38));getWindow().setNavigationBarColor(Color.rgb(4,14,38));
+    if(!prefs().getBoolean("duplicutter_welcome_v1",false))showWelcome();else render();
+  }
   @Override public void onDestroy(){jobs.shutdownNow();super.onDestroy();}
   int px(int d){return (int)(d*getResources().getDisplayMetrics().density+0.5f);}
-  TextView label(String s,int sz,boolean strong){TextView t=new TextView(this);t.setText(s);t.setTextSize(sz);t.setTextColor(ink);if(strong)t.setTypeface(null,1);t.setPadding(px(2),px(5),px(2),px(5));return t;}
-  Button btn(String text,Runnable click){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setOnClickListener(v->click.run());b.setEnabled(!working);b.setMinHeight(px(42));b.setTextSize(12);return b;}
-  void gap(LinearLayout c,int h){View v=new View(this);c.addView(v,new LinearLayout.LayoutParams(1,px(h)));}
+  TextView label(String s,int sz,boolean strong){
+    TextView t=new TextView(this);t.setText(s);t.setTextSize(sz);t.setTextColor(ink);
+    if(strong)t.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+    t.setPadding(px(3),px(5),px(3),px(5));return t;
+  }
+  android.graphics.drawable.GradientDrawable gradient(int a,int b,int radius,int stroke){
+    android.graphics.drawable.GradientDrawable d=new android.graphics.drawable.GradientDrawable(
+      android.graphics.drawable.GradientDrawable.Orientation.TL_BR,new int[]{a,b});
+    d.setCornerRadius(px(radius));
+    if(stroke!=0)d.setStroke(px(1),stroke);
+    return d;
+  }
+  int C(String value){return Color.parseColor(value);}
+  android.graphics.drawable.GradientDrawable glass(){return gradient(C("#104190"),C("#071A40"),23,C("#2974C2"));}
+  android.graphics.drawable.GradientDrawable bright(){return gradient(C("#39E6FF"),C("#045AF5"),22,C("#88F8FF"));}
+  android.graphics.drawable.GradientDrawable subtle(){return gradient(C("#123C81"),C("#09224F"),16,C("#255BA0"));}
+  Button btn(String name,Runnable click){
+    Button b=new Button(this);b.setAllCaps(false);b.setText(name);b.setTextSize(12);
+    b.setTypeface(android.graphics.Typeface.DEFAULT,android.graphics.Typeface.BOLD);
+    b.setTextColor(Color.WHITE);
+    b.setPadding(px(9),px(5),px(9),px(5));
+    if(name.contains("DELETE"))b.setBackground(gradient(C("#CE285A"),C("#82133C"),18,C("#FB789A")));
+    else if(name.contains("SCAN")||name.contains("MOVE")||name.contains("START")||name.contains("GET STARTED"))b.setBackground(bright());
+    else b.setBackground(subtle());
+    b.setMinHeight(px(44));b.setOnClickListener(v->click.run());b.setEnabled(!working);return b;
+  }
+  LinearLayout panel(){
+    LinearLayout p=new LinearLayout(this);p.setOrientation(1);p.setBackground(glass());
+    p.setPadding(px(13),px(12),px(13),px(12));return p;
+  }
+  LinearLayout.LayoutParams margins(int w,int h,int t,int b){
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(w,h);
+    lp.setMargins(px(1),px(t),px(1),px(b));return lp;
+  }
+  ImageView iconImage(int size){
+    ImageView v=new ImageView(this);v.setImageResource(R.drawable.ic_duplicutter);
+    v.setScaleType(ImageView.ScaleType.FIT_CENTER);
+    v.setLayoutParams(new LinearLayout.LayoutParams(px(size),px(size)));return v;
+  }
+  void sectionHeader(LinearLayout p,String heading,String hint){
+    TextView h=label(heading,17,true);p.addView(h);
+    if(hint!=null){TextView d=label(hint,12,false);d.setTextColor(C("#A8CBED"));p.addView(d);}
+  }
+  void coloredLine(LinearLayout p,String text,Runnable action){
+    TextView t=label(text,12,false);t.setTextColor(C("#DAEEFF"));
+    t.setPadding(px(10),px(10),px(10),px(10));t.setBackground(subtle());
+    p.addView(t,margins(-1,-2,4,3));if(action!=null)t.setOnClickListener(v->action.run());
+  }
+  void jump(String where){tab=where;query="";page=0;filter="All";selected.clear();render();}
+  void showWelcome(){
+    ScrollView sc=new ScrollView(this);sc.setFillViewport(true);
+    LinearLayout wrap=new LinearLayout(this);wrap.setPadding(px(24),px(35),px(24),px(30));
+    wrap.setOrientation(1);wrap.setGravity(Gravity.CENTER_HORIZONTAL);
+    wrap.setBackground(gradient(C("#0757D1"),C("#031233"),0,0));sc.addView(wrap);
+    wrap.addView(iconImage(154));gap(wrap,12);
+    TextView title=label("Duplicutter",34,true);title.setGravity(Gravity.CENTER);wrap.addView(title);
+    TextView sub=label("Smart duplicate finder & cleanup",15,false);
+    sub.setTextColor(C("#9FDFFF"));sub.setGravity(Gravity.CENTER);wrap.addView(sub);
+    gap(wrap,22);
+    LinearLayout features=panel();wrap.addView(features,margins(-1,-2,6,10));
+    coloredLine(features,"▣   Find exact duplicates\n       Photos, videos, documents and more",null);
+    coloredLine(features,"✓   Safe review\n       You stay in control, always",null);
+    coloredLine(features,"▤   Organized cleanup\n       Move files into folders you choose",null);
+    gap(wrap,9);
+    Button go=btn("GET STARTED  →",()->{prefs().edit().putBoolean("duplicutter_welcome_v1",true).apply();render();});
+    wrap.addView(go,new LinearLayout.LayoutParams(-1,px(54)));
+    gap(wrap,8);
+    Button folders=btn("CHOOSE FOLDERS",()->{prefs().edit().putBoolean("duplicutter_welcome_v1",true).apply();render();picker(PICK_SOURCE);});
+    wrap.addView(folders,new LinearLayout.LayoutParams(-1,px(50)));
+    gap(wrap,13);
+    TextView credit=label("Created by PERSPICAL\nDeveloped by Adam F. Amru",11,false);
+    credit.setGravity(Gravity.CENTER);credit.setTextColor(C("#9BB7DD"));wrap.addView(credit);
+    setContentView(sc);
+  }
+    void gap(LinearLayout c,int h){View v=new View(this);c.addView(v,new LinearLayout.LayoutParams(1,px(h)));}
   void render(){
-    // Only the list region scrolls. Tabs, search/filter controls, and actions remain visible.
-    root=new LinearLayout(this);root.setOrientation(1);root.setBackgroundColor(Color.rgb(247,249,253));
-    top=new LinearLayout(this);top.setOrientation(1);top.setPadding(px(15),px(12),px(15),px(8));top.setBackgroundColor(Color.rgb(10,29,67));
-    TextView logo=label("◈  FILE MANAGER  ·  REPORTKEEPER",18,true);logo.setTextColor(Color.WHITE);top.addView(logo);
-    TextView credit=label("Created by PERSPICAL  ·  Developed by Adam F. Amru",11,false);credit.setTextColor(Color.rgb(188,212,251));top.addView(credit);
-    info=label(message,12,false);info.setTextColor(Color.rgb(202,229,255));info.setMaxLines(2);top.addView(info);
+    root=new LinearLayout(this);root.setOrientation(1);root.setBackground(
+      gradient(C("#09285B"),C("#03112E"),0,0));
+    top=new LinearLayout(this);top.setOrientation(1);
+    top.setPadding(px(14),px(8),px(14),px(6));
+    LinearLayout banner=new LinearLayout(this);banner.setGravity(Gravity.CENTER_VERTICAL);
+    banner.setOrientation(0);banner.addView(iconImage(50));
+    LinearLayout names=new LinearLayout(this);names.setOrientation(1);
+    LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.leftMargin=px(10);
+    TextView name=label("Duplicutter",23,true);names.addView(name);
+    TextView slogan=label("Find. Remove. Free up space.",12,false);
+    slogan.setTextColor(C("#B4D6FF"));names.addView(slogan);banner.addView(names,np);
+    TextView settings=label("⚙",25,false);settings.setGravity(Gravity.CENTER);
+    settings.setOnClickListener(v->about());banner.addView(settings,new LinearLayout.LayoutParams(px(44),px(48)));
+    top.addView(banner);
+    info=label(message,11,false);info.setTextColor(C("#A5CFFF"));info.setMaxLines(2);top.addView(info);
     root.addView(top);
-    HorizontalScrollView navScroll=new HorizontalScrollView(this);navScroll.setHorizontalScrollBarEnabled(false);
-    nav=new LinearLayout(this);nav.setOrientation(0);nav.setBackgroundColor(Color.WHITE);
-    String[] titles={"HOME","COPIES","VERSIONS","FILES","REVIEW"};
-    for(String t:titles){TextView n=label(t,12,t.equals(tab));n.setPadding(px(12),px(12),px(12),px(12));n.setTextColor(t.equals(tab)?blue:ink);n.setOnClickListener(v->{tab=t;page=0;query="";filter="All";selected.clear();render();});nav.addView(n);}
-    navScroll.addView(nav);root.addView(navScroll);
-    toolbar=new LinearLayout(this);toolbar.setOrientation(1);toolbar.setPadding(px(10),px(5),px(10),px(5));root.addView(toolbar);
-    if(tab.equals("HOME"))renderHomeToolbar();
-    else if(tab.equals("REVIEW"))renderReviewToolbar();
-    else renderBrowseToolbar();
-    listView=new ListView(this);listView.setDividerHeight(px(1));listView.setCacheColorHint(Color.TRANSPARENT);
-    listView.setChoiceMode(ListView.CHOICE_MODE_NONE);
+    HorizontalScrollView tabs=new HorizontalScrollView(this);tabs.setHorizontalScrollBarEnabled(false);
+    nav=new LinearLayout(this);nav.setOrientation(0);nav.setPadding(px(8),px(4),px(8),px(8));
+    String[] namesTabs={"HOME","COPIES","VERSIONS","FILES","REVIEW"};
+    for(String t:namesTabs){TextView item=label(t,12,tab.equals(t));item.setGravity(Gravity.CENTER);
+      item.setTextColor(Color.WHITE);item.setPadding(px(15),px(11),px(15),px(11));
+      item.setBackground(tab.equals(t)?bright():subtle());
+      LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-2,-2);lp.setMargins(px(3),0,px(3),0);
+      nav.addView(item,lp);item.setOnClickListener(v->jump(t));
+    }
+    tabs.addView(nav);root.addView(tabs);
+    listView=null;selectionLabel=null;pager=null;
+    if(tab.equals("HOME")){
+      ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);
+      LinearLayout home=new LinearLayout(this);home.setOrientation(1);
+      home.setPadding(px(14),px(5),px(14),px(15));scroll.addView(home);
+      buildDashboard(home);
+      root.addView(scroll,new LinearLayout.LayoutParams(-1,0,1));
+      TextView hint=label("OFFLINE  •  SHA-256 VERIFIED  •  YOU CONTROL DELETION",10,true);
+      hint.setTextColor(C("#9CC6FF"));hint.setGravity(Gravity.CENTER);root.addView(hint);
+      setContentView(root);return;
+    }
+    toolbar=new LinearLayout(this);toolbar.setOrientation(1);
+    toolbar.setPadding(px(12),px(3),px(12),px(7));root.addView(toolbar);
+    if(tab.equals("REVIEW"))renderReviewToolbar();else renderBrowseToolbar();
+    listView=new ListView(this);listView.setDividerHeight(px(3));
+    listView.setDivider(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+    listView.setBackgroundColor(Color.TRANSPARENT);
+    listView.setCacheColorHint(Color.TRANSPARENT);listView.setChoiceMode(ListView.CHOICE_MODE_NONE);
     root.addView(listView,new LinearLayout.LayoutParams(-1,0,1));
-    footer=new LinearLayout(this);footer.setOrientation(1);footer.setBackgroundColor(Color.WHITE);footer.setPadding(px(10),px(4),px(10),px(7));root.addView(footer);
-    if(tab.equals("HOME")){TextView t=label("Offline processing  ·  Folder permissions only  ·  No automatic deletion",11,false);footer.addView(t);}
-    else if(tab.equals("REVIEW")){TextView t=label("Restore returns files to their original folder when accessible.",11,false);footer.addView(t);}
-    else {
-      selectionLabel=label(selected.size()+" selected",12,true);footer.addView(selectionLabel);
-      LinearLayout actions=new LinearLayout(this);actions.setOrientation(0);
-      Button pick=btn("SELECT FILES",()->selectScope());
-      actions.addView(pick,new LinearLayout.LayoutParams(0,px(48),1));
-      Button clear=btn("CLEAR",()->{selected.clear();refreshList();});actions.addView(clear,new LinearLayout.LayoutParams(0,px(48),0.55f));
-      footer.addView(actions);
+    footer=new LinearLayout(this);footer.setOrientation(1);footer.setPadding(px(12),px(5),px(12),px(7));
+    footer.setBackground(gradient(C("#0E3678"),C("#061637"),15,C("#2765C2")));
+    root.addView(footer);
+    if(tab.equals("REVIEW")){
+      TextView note=label("Review history  •  Tap an item to restore",12,false);footer.addView(note);
+    }else{
+      selectionLabel=label(selected.size()+" selected",12,true);
+      footer.addView(selectionLabel);
+      LinearLayout buttons=new LinearLayout(this);buttons.setOrientation(0);
+      buttons.addView(btn("SELECT",()->selectScope()),new LinearLayout.LayoutParams(0,px(47),1));
+      buttons.addView(btn("CLEAR",()->{selected.clear();refreshList();}),new LinearLayout.LayoutParams(0,px(47),0.67f));
+      footer.addView(buttons);
       LinearLayout ops=new LinearLayout(this);ops.setOrientation(0);
-      ops.addView(btn("MOVE / REVIEW",()->confirm(false)),new LinearLayout.LayoutParams(0,px(46),1));
-      ops.addView(btn("DELETE",()->confirm(true)),new LinearLayout.LayoutParams(0,px(46),0.6f));
+      ops.addView(btn("MOVE / REVIEW",()->confirm(false)),new LinearLayout.LayoutParams(0,px(48),1));
+      ops.addView(btn("DELETE",()->confirm(true)),new LinearLayout.LayoutParams(0,px(48),0.65f));
       footer.addView(ops);
     }
     setContentView(root);refreshList();
   }
-  void renderHomeToolbar(){
+  void buildDashboard(LinearLayout home){
+    LinearLayout sources=panel();home.addView(sources,margins(-1,-2,3,10));
+    sectionHeader(sources,"Source Folders","Choose folders to scan for duplicates.");
+    LinearLayout buttons=new LinearLayout(this);buttons.setOrientation(0);
+    buttons.addView(btn("+ ADD SOURCE",()->picker(PICK_SOURCE)),new LinearLayout.LayoutParams(0,px(47),1));
+    sources.addView(buttons);
+    if(roots().isEmpty())coloredLine(sources,"No source folders selected yet.",null);
+    for(String r:roots())coloredLine(sources,"▣  "+shortPath(r)+"   ·   Tap to remove",()->{
+      new AlertDialog.Builder(this).setTitle("Remove source folder?")
+      .setMessage("The folder and its contents will not be deleted.")
+      .setNegativeButton("Cancel",null).setPositiveButton("REMOVE",(di,w)->{
+        ArrayList<String> a=roots();a.remove(r);prefs().edit().putString("roots",new JSONArray(a).toString()).apply();
+        files.clear();dupGroups.clear();revGroups.clear();selected.clear();older.clear();duplicate.clear();render();
+      }).show();
+    });
+    LinearLayout dest=panel();home.addView(dest,margins(-1,-2,3,10));
+    sectionHeader(dest,"Destinations","Organize files into multiple folders.");
+    dest.addView(btn("+ ADD DESTINATION",()->addBucket()),new LinearLayout.LayoutParams(-1,px(45)));
+    dest.addView(btn("CHOOSE MANUAL REVIEW FOLDER",()->picker(PICK_REVIEW)),new LinearLayout.LayoutParams(-1,px(45)));
+    if(review()!=null)coloredLine(dest,"▣  Manual Review · "+shortPath(review()),()->jump("REVIEW"));
+    for(Bucket b:buckets())coloredLine(dest,"▣  "+b.name+"  ·  "+shortPath(b.tree),null);
+    LinearLayout kinds=panel();home.addView(kinds,margins(-1,-2,3,10));
+    sectionHeader(kinds,"Scan File Types","Select which categories to include.");
+    LinearLayout.LayoutParams typelp=new LinearLayout.LayoutParams(-1,px(45));
+    kinds.addView(btn("CUSTOMIZE FILE TYPES",()->chooseTypes()),typelp);
+    TextView chosen=label("",12,false);StringJoiner join=new StringJoiner("   •   ");
+    for(String k:categories)if(allowed(k))join.add(k);
+    chosen.setText(join.toString());chosen.setTextColor(C("#B1DEFF"));kinds.addView(chosen);
+    LinearLayout summary=panel();home.addView(summary,margins(-1,-2,3,10));
+    sectionHeader(summary,"Storage Summary","Results from your latest scan");
+    long potential=0,total=0;for(FileEntry f:files){total+=Math.max(0,f.size);if(duplicate.contains(f.key)||older.contains(f.key))potential+=Math.max(0,f.size);}
+    LinearLayout row=new LinearLayout(this);row.setOrientation(0);
+    row.addView(metric(String.valueOf(files.size()),"Files indexed"),new LinearLayout.LayoutParams(0,-2,1));
+    row.addView(metric(String.valueOf(dupGroups.size()),"Duplicate groups"),new LinearLayout.LayoutParams(0,-2,1));
+    summary.addView(row);
+    LinearLayout next=new LinearLayout(this);next.setOrientation(0);
+    next.addView(metric(fmt(potential),"Candidates"),new LinearLayout.LayoutParams(0,-2,1));
+    next.addView(metric(String.valueOf(older.size()),"Old revisions"),new LinearLayout.LayoutParams(0,-2,1));
+    summary.addView(next);
+    LinearLayout quick=panel();home.addView(quick,margins(-1,-2,3,11));
+    sectionHeader(quick,"Quick Actions","Find and manage duplicates in seconds.");
+    quick.addView(btn("✦  SCAN NOW",()->scan()),new LinearLayout.LayoutParams(-1,px(56)));
+    quick.addView(btn("VIEW EXACT COPIES  →",()->jump("COPIES")),new LinearLayout.LayoutParams(-1,px(50)));
+    quick.addView(btn("MOVE & ORGANIZE  →",()->jump("REVIEW")),new LinearLayout.LayoutParams(-1,px(50)));
+  }
+  LinearLayout metric(String value,String title){
+    LinearLayout holder=new LinearLayout(this);holder.setOrientation(1);holder.setGravity(Gravity.CENTER);
+    holder.setPadding(px(4),px(10),px(4),px(10));holder.setBackground(subtle());
+    LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(px(3),px(4),px(3),px(2));
+    TextView count=label(value,20,true);count.setTextColor(C("#8BEAFF"));count.setGravity(Gravity.CENTER);holder.addView(count);
+    TextView name=label(title,11,false);name.setTextColor(C("#BEDAFF"));name.setGravity(Gravity.CENTER);
+    holder.addView(name);LinearLayout wrap=new LinearLayout(this);wrap.setOrientation(1);wrap.addView(holder,lp);return wrap;
+  }
+    void renderHomeToolbar(){
     toolbar.addView(label("SOURCE FOLDERS & SCAN",14,true));
     LinearLayout a=new LinearLayout(this);a.setOrientation(0);
     a.addView(btn("+ ADD SOURCE",()->picker(PICK_SOURCE)),new LinearLayout.LayoutParams(0,px(45),1));
