@@ -1,0 +1,62 @@
+name: Build Duplicutter for Windows
+on:
+  push:
+    branches: [duplicutter-windows-build]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+      - name: Unpack Duplicutter source
+        shell: pwsh
+        run: Expand-Archive -Path 'duplicutter_windows/duplicutter_sources.zip' -DestinationPath 'duplicutter_windows' -Force
+      - name: Install dependencies
+        shell: pwsh
+        working-directory: duplicutter_windows
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+      - name: Prepare chosen Duplicutter icon
+        shell: pwsh
+        working-directory: duplicutter_windows
+        run: python build_assets.py
+      - name: Check source and safety tests
+        shell: pwsh
+        working-directory: duplicutter_windows
+        run: |
+          python -m compileall -q app.py core.py
+          python -m unittest discover -s tests -v
+      - name: Build standalone Windows EXE
+        shell: pwsh
+        working-directory: duplicutter_windows
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name Duplicutter --icon assets/duplicutter.ico --add-data "assets/duplicutter.png;assets" --add-data "assets/duplicutter.ico;assets" --collect-all customtkinter --collect-all send2trash app.py
+      - name: Verify executable and produce checksum
+        shell: pwsh
+        working-directory: duplicutter_windows
+        run: |
+          if (!(Test-Path 'dist/Duplicutter.exe')) { throw 'EXE was not generated' }
+          $exe=Get-Item 'dist/Duplicutter.exe'
+          if ($exe.Length -lt 1000000) { throw 'EXE unexpectedly small' }
+          $digest=(Get-FileHash 'dist/Duplicutter.exe' -Algorithm SHA256).Hash
+          Write-Host "Duplicutter.exe size: $($exe.Length)"
+          Write-Host "SHA256: $digest"
+          "$digest  Duplicutter.exe" | Out-File -FilePath 'dist/SHA256SUMS.txt' -Encoding ascii
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Duplicutter-Windows-v1.0-Beta
+          path: |
+            duplicutter_windows/dist/Duplicutter.exe
+            duplicutter_windows/dist/SHA256SUMS.txt
+          if-no-files-found: error
