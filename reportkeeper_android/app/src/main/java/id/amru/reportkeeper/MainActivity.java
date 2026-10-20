@@ -507,11 +507,17 @@ public class MainActivity extends Activity {
     }
     FileCopy c=new FileCopy();c.tree=dest;c.doc=DocumentsContract.getDocumentId(created);
     c.sourceTree=f.tree;c.sourceParent=f.parent;c.originalName=f.name;c.reviewName=name;c.size=f.size;c.created=System.currentTimeMillis();c.bucket=bucket;
-    if(!DocumentsContract.deleteDocument(getContentResolver(),f.documentUri())){
+    // Journal BEFORE source deletion. A crash during transfer leaves an extra file, never an untracked loss.
+    ArrayList<FileCopy> records=history();records.add(0,c);
+    try{saveHistory(records);}catch(Exception ex){
       try{DocumentsContract.deleteDocument(getContentResolver(),created);}catch(Exception ignored){}
-      throw new IOException("Original could not be removed; attempted to remove extra copy.");
+      throw new IOException("Could not record restore history; original kept",ex);
     }
-    ArrayList<FileCopy> records=history();records.add(0,c);saveHistory(records);
+    if(!DocumentsContract.deleteDocument(getContentResolver(),f.documentUri())){
+      boolean copyRemoved=false;try{copyRemoved=DocumentsContract.deleteDocument(getContentResolver(),created);}catch(Exception ignored){}
+      if(copyRemoved){records.remove(0);saveHistory(records);}
+      throw new IOException("Source could not be deleted. Original remains; any review copy was retained for safety.");
+    }
   }
   void copyVerified(Uri from,Uri to)throws Exception{
     String expected=hash(from);try(InputStream in=getContentResolver().openInputStream(from);
@@ -534,7 +540,7 @@ public class MainActivity extends Activity {
     for(int i=0;i<json.length();i++)try{a.add(FileCopy.parse(json.getJSONObject(i)));}catch(Exception ignored){}return a;
   }
   void saveHistory(List<FileCopy> entries){JSONArray a=new JSONArray();for(FileCopy e:entries)try{a.put(e.json());}catch(Exception ignored){}
-    prefs().edit().putString("history",a.toString()).commit();
+    if(!prefs().edit().putString("history",a.toString()).commit())throw new IllegalStateException("History journal write failed");
   }
   void restoreConfirm(FileCopy e){new AlertDialog.Builder(this).setTitle("Restore file?")
     .setMessage(e.originalName+"\nRestores to original folder. Conflicting names are renamed, never overwritten.")
